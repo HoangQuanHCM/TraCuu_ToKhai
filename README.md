@@ -1,2 +1,2 @@
-# TraCuu_ToKhai
-Dụng cụ tra cứu bill và trả kết quả theo yêu cầu
+# Library Necessary
+pip install pyinstaller torch torchvision torchaudio opencv-python selenium gspread pandas ttkbootstrap imutils oauth2client google-api-python-client google-auth-httplib2 google-auth-oauthlib
