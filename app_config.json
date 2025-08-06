@@ -1,0 +1,9 @@
+{
+    "gui_app": {
+        "g_sheet_url": "https://docs.google.com/spreadsheets/d/1Oq_Gesn9fBYA23zvlDvGuzEVlmwhZp2LGGS5OHVmcRs/edit?gid=0#gid=0",
+        "sheet_name": "CDs LH",
+        "read_col": "B",
+        "write_col": "DD",
+        "result_field": "Ng\u00e0y qua khu v\u1ef1c gi\u00e1m s\u00e1t"
+    }
+}

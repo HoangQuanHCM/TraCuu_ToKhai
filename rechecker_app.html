@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hệ Thống Phân Tích & Tái Huấn Luyện CAPTCHA</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700&family=VT323&display=swap');
+
+        :root {
+            --primary-color: #00ff41;
+            --secondary-color: #00d4ff;
+            --background-color: #010409;
+            --panel-bg-color: rgba(13, 17, 23, 0.85);
+            --border-color: #30363d;
+            --highlight-color: #ffc107;
+            --fail-color: #ff4141;
+            --text-color: #c9d1d9;
+        }
+
+        body {
+            background-color: var(--background-color);
+            color: var(--text-color);
+            font-family: 'Roboto Mono', monospace;
+            font-size: 16px;
+            margin: 0;
+            overflow: hidden;
+        }
+
+        #matrix-bg {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: -1;
+            opacity: 0.7;
+        }
+
+        .main-grid {
+            display: grid;
+            grid-template-columns: 1fr 2fr 1.5fr;
+            height: 100vh;
+            gap: 2px;
+        }
+
+        .panel {
+            padding: 25px;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            background-color: var(--panel-bg-color);
+            backdrop-filter: blur(3px);
+            border: 1px solid var(--border-color);
+            box-shadow: inset 0 0 15px rgba(0, 255, 65, 0.1);
+            overflow: hidden;
+        }
+
+        .left-panel, .right-panel {
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .center-panel {
+            border-left: 1px solid var(--border-color);
+            border-right: 1px solid var(--border-color);
+            justify-content: center;
+        }
+
+        h1, h2, h3 {
+            font-family: 'VT323', monospace;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            margin: 0;
+            color: var(--primary-color);
+            text-shadow: 0 0 5px var(--primary-color), 0 0 10px var(--primary-color);
+            padding-bottom: 10px;
+        }
+        h1 { 
+            font-size: 2.5em; 
+            text-align: center;
+            position: relative;
+        }
+        h2 { font-size: 1.8em; border-bottom: 1px solid var(--border-color); }
+        h3 { font-size: 1.4em; border-bottom: none; padding-bottom: 0; margin-bottom: -10px; }
+
+        .glitch {
+            position: relative;
+            animation: glitch-skew 1s infinite linear alternate-reverse;
+        }
+        .glitch::before, .glitch::after {
+            content: attr(data-text);
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: var(--panel-bg-color);
+        }
+        .glitch::before {
+            left: 2px;
+            text-shadow: -2px 0 var(--highlight-color);
+            clip: rect(44px, 450px, 56px, 0);
+            animation: glitch-anim 5s infinite linear alternate-reverse;
+        }
+        .glitch::after {
+            left: -2px;
+            text-shadow: -2px 0 var(--fail-color), 2px 2px var(--secondary-color);
+            clip: rect(85px, 450px, 90px, 0);
+            animation: glitch-anim2 5s infinite linear alternate-reverse;
+        }
+
+        #status-line {
+            width: 100%;
+            box-sizing: border-box;
+            font-size: 1.1em;
+            min-height: 24px;
+            background-color: #010409;
+            border: 1px solid var(--border-color);
+            padding: 10px;
+            border-radius: 4px;
+        }
+        
+        .status-highlight { color: var(--highlight-color); font-weight: bold; }
+        .status-fail { color: var(--fail-color); font-weight: bold; }
+
+        #image-container {
+            border: 1px solid var(--border-color);
+            padding: 10px;
+            background: #010409;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 4px;
+            position: relative;
+            margin-top: 20px;
+        }
+
+        #captcha-image { max-width: 100%; image-rendering: pixelated; }
+
+        #live-attempts-log, #history-log {
+            background-color: #010409;
+            border: 1px solid var(--border-color);
+            flex-grow: 1;
+            overflow-y: auto;
+            padding: 15px;
+            font-size: 1.1em;
+            border-radius: 4px;
+        }
+        .attempt-entry { margin-bottom: 8px; }
+
+        #result-container { display: flex; gap: 15px; justify-content: center; margin-top: 20px; }
+
+        .result-box {
+            width: 60px;
+            height: 80px;
+            border: 2px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 3em;
+            font-family: 'VT323', monospace;
+            background: #010409;
+            border-radius: 4px;
+            transition: all 0.3s ease;
+        }
+        
+        .consensus {
+            border-color: var(--highlight-color);
+            color: var(--highlight-color);
+            text-shadow: 0 0 8px var(--highlight-color);
+            animation: pulse 1.5s infinite;
+        }
+        
+        .history-entry {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            margin-bottom: 10px;
+            padding-bottom: 10px;
+            border-bottom: 1px dashed var(--border-color);
+        }
+        .history-entry:last-child { border-bottom: none; }
+        .history-image {
+            width: 100px;
+            height: 40px;
+            object-fit: contain;
+            border: 1px solid var(--border-color);
+            background-color: #000;
+        }
+        .history-details { flex-grow: 1; font-size: 0.9em; }
+        .history-success { color: var(--highlight-color); }
+        .history-fail { color: var(--fail-color); }
+        .history-info { color: var(--secondary-color); }
+        .history-label { font-weight: bold; color: var(--primary-color); }
+
+        .typing-cursor { animation: blink 1s step-end infinite; }
+        
+        @keyframes blink { from, to { opacity: 0; } 50% { opacity: 1; } }
+        @keyframes pulse { 0% { box-shadow: 0 0 5px var(--highlight-color); } 50% { box-shadow: 0 0 20px var(--highlight-color); } 100% { box-shadow: 0 0 5px var(--highlight-color); } }
+        @keyframes glitch-skew { 0% { transform: skew(0); } 1% { transform: skew(1deg); } 2% { transform: skew(-1deg); } 3% { transform: skew(0); } 100% { transform: skew(0); } }
+        @keyframes glitch-anim { 0% { clip: rect(22px, 9999px, 98px, 0); transform: skew(0.3deg); } 5% { clip: rect(83px, 9999px, 33px, 0); transform: skew(0.2deg); } 10% { clip: rect(42px, 9999px, 92px, 0); transform: skew(0.8deg); } 15% { clip: rect(35px, 9999px, 1px, 0); transform: skew(0.6deg); } 20% { clip: rect(64px, 9999px, 10px, 0); transform: skew(0.1deg); } 25% { clip: rect(10px, 9999px, 5px, 0); transform: skew(0.4deg); } 30% { clip: rect(84px, 9999px, 49px, 0); transform: skew(0.9deg); } 35% { clip: rect(49px, 9999px, 86px, 0); transform: skew(0.1deg); } 40% { clip: rect(21px, 9999px, 68px, 0); transform: skew(0.2deg); } 45% { clip: rect(99px, 9999px, 43px, 0); transform: skew(0.7deg); } 50% { clip: rect(3px, 9999px, 87px, 0); transform: skew(0.3deg); } 55% { clip: rect(74px, 9999px, 59px, 0); transform: skew(0.2deg); } 60% { clip: rect(21px, 9999px, 84px, 0); transform: skew(0.5deg); } 65% { clip: rect(93px, 9999px, 7px, 0); transform: skew(0.1deg); } 70% { clip: rect(3px, 9999px, 14px, 0); transform: skew(0.8deg); } 75% { clip: rect(89px, 9999px, 47px, 0); transform: skew(0.4deg); } 80% { clip: rect(33px, 9999px, 7px, 0); transform: skew(0.9deg); } 85% { clip: rect(100px, 9999px, 92px, 0); transform: skew(0.2deg); } 90% { clip: rect(26px, 9999px, 3px, 0); transform: skew(0.6deg); } 95% { clip: rect(2px, 9999px, 72px, 0); transform: skew(0.1deg); } 100% { clip: rect(23px, 9999px, 29px, 0); transform: skew(0.5deg); } }
+        @keyframes glitch-anim2 { 0% { clip: rect(8px, 9999px, 9px, 0); transform: skew(0.3deg); } 3% { clip: rect(8px, 9999px, 9px, 0); transform: skew(0.2deg); } 5% { clip: rect(8px, 9999px, 9px, 0); transform: skew(0.8deg); } 7% { clip: rect(8px, 9999px, 9px, 0); transform: skew(0.6deg); } 9% { clip: rect(8px, 9999px, 9px, 0); transform: skew(0.1deg); } 11% { clip: rect(8px, 9999px, 9px, 0); transform: skew(0.4deg); } 13% { clip: rect(8px, 9999px, 9px, 0); transform: skew(0.9deg); } 15% { clip: rect(8px, 9999px, 9px, 0); transform: skew(0.1deg); } 17% { clip: rect(8px, 9999px, 9px, 0); transform: skew(0.2deg); } 19% { clip: rect(8px, 9999px, 9px, 0); transform: skew(0.7deg); } 21% { clip: rect(8px, 9999px, 9px, 0); transform: skew(0.3deg); } 23% { clip: rect(8px, 9999px, 9px, 0); transform: skew(0.2deg); } 25% { clip: rect(8px, 9999px, 9px, 0); transform: skew(0.5deg); } 27% { clip: rect(8px, 9999px, 9px, 0); transform: skew(0.1deg); } 29% { clip: rect(8px, 9999px, 9px, 0); transform: skew(0.8deg); } 31% { clip: rect(8px, 9999px, 9px, 0); transform: skew(0.4deg); } 33% { clip: rect(8px, 9999px, 9px, 0); transform: skew(0.9deg); } 35% { clip: rect(8px, 9999px, 9px, 0); transform: skew(0.2deg); } 37% { clip: rect(8px, 9999px, 9px, 0); transform: skew(0.6deg); } 39% { clip: rect(8px, 9999px, 9px, 0); transform: skew(0.1deg); } 41% { clip: rect(8px, 9999px, 9px, 0); transform: skew(0.5deg); } 43% { clip: rect(8px, 9999px, 9px, 0); transform: skew(0.3deg); } 45% { clip: rect(8px, 9999px, 9px, 0); transform: skew(0.8deg); } 47% { clip: rect(8px, 9999px, 9px, 0); transform: skew(0.2deg); } 49% { clip: rect(8px, 9999px, 9px, 0); transform: skew(0.4deg); } 51% { clip: rect(8px, 9999px, 9px, 0); transform: skew(0.9deg); } 53% { clip: rect(8px, 9999px, 9px, 0); transform: skew(0.1deg); } 55% { clip: rect(8px, 9999px, 9px, 0); transform: skew(0.6deg); } 57% { clip: rect(8px, 9999px, 9px, 0); transform: skew(0.2deg); } 59% { clip: rect(8px, 9999px, 9px, 0); transform: skew(0.5deg); } 61% { clip: rect(8px, 9999px, 9px, 0); transform: skew(0.8deg); } 63% { clip: rect(8px, 9999px, 9px, 0); transform: skew(0.4deg); } 65% { clip: rect(8px, 9999px, 9px, 0); transform: skew(0.9deg); } 67% { clip: rect(8px, 9999px, 9px, 0); transform: skew(0.1deg); } 69% { clip: rect(8px, 9999px, 9px, 0); transform: skew(0.6deg); } 71% { clip: rect(8px, 9999px, 9px, 0); transform: skew(0.2deg); } 73% { clip: rect(8px, 9999px, 9px, 0); transform: skew(0.5deg); } 75% { clip: rect(8px, 9999px, 9px, 0); transform: skew(0.8deg); } 77% { clip: rect(8px, 9999px, 9px, 0); transform: skew(0.4deg); } 79% { clip: rect(8px, 9999px, 9px, 0); transform: skew(0.9deg); } 81% { clip: rect(8px, 9999px, 9px, 0); transform: skew(0.1deg); } 83% { clip: rect(8px, 9999px, 9px, 0); transform: skew(0.6deg); } 85% { clip: rect(8px, 9999px, 9px, 0); transform: skew(0.2deg); } 87% { clip: rect(8px, 9999px, 9px, 0); transform: skew(0.5deg); } 89% { clip: rect(8px, 9999px, 9px, 0); transform: skew(0.8deg); } 91% { clip: rect(8px, 9999px, 9px, 0); transform: skew(0.4deg); } 93% { clip: rect(8px, 9999px, 9px, 0); transform: skew(0.9deg); } 95% { clip: rect(8px, 9999px, 9px, 0); transform: skew(0.1deg); } 97% { clip: rect(8px, 9999px, 9px, 0); transform: skew(0.6deg); } 99% { clip: rect(8px, 9999px, 9px, 0); transform: skew(0.2deg); } 100% { clip: rect(8px, 9999px, 9px, 0); transform: skew(0.5deg); } }
+
+    </style>
+</head>
+<body>
+    <canvas id="matrix-bg"></canvas>
+    
+    <div class="main-grid">
+        <div class="left-panel panel">
+            <h2>TRẠNG THÁI</h2>
+            <div id="status-line"><span id="status-text"></span><span class="typing-cursor">_</span></div>
+            <h2>QUÁ TRÌNH DỰ ĐOÁN</h2>
+            <div id="live-attempts-log"></div>
+        </div>
+
+        <div class="center-panel panel">
+            <h1 class="glitch" data-text="TRẠM PHÂN TÍCH">TRẠM PHÂN TÍCH</h1>
+            <div id="image-container">
+                <img id="captcha-image" src="" alt="CAPTCHA Image">
+            </div>
+            <h3>[KẾT QUẢ DỰ ĐOÁN]</h3>
+            <div id="result-container">
+                <div class="result-box" id="res-0"></div>
+                <div class="result-box" id="res-1"></div>
+                <div class="result-box" id="res-2"></div>
+                <div class="result-box" id="res-3"></div>
+                <div class="result-box" id="res-4"></div>
+            </div>
+        </div>
+
+        <div class="right-panel panel">
+            <h2>[NHẬT KÝ HỆ THỐNG]</h2>
+            <div id="history-log"></div>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            // --- Matrix Background Effect ---
+            const canvas = document.getElementById('matrix-bg');
+            const ctx = canvas.getContext('2d');
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            const alphabet = 'アァカサタナハマヤャラワガザダバパイィキシチニヒミリヰギジヂビピウゥクスツヌフムユュルグズブヅプエェケセテネヘメレヱゲゼデベペオォコソトノホモヨョロヲゴゾドボポヴッンABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+            const fontSize = 16;
+            const columns = canvas.width / fontSize;
+            const rainDrops = Array.from({ length: columns }).map(() => 1);
+
+            function drawMatrix() {
+                ctx.fillStyle = 'rgba(1, 4, 9, 0.05)';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--primary-color').trim();
+                ctx.font = fontSize + 'px monospace';
+                for (let i = 0; i < rainDrops.length; i++) {
+                    const text = alphabet.charAt(Math.floor(Math.random() * alphabet.length));
+                    ctx.fillText(text, i * fontSize, rainDrops[i] * fontSize);
+                    if (rainDrops[i] * fontSize > canvas.height && Math.random() > 0.975) {
+                        rainDrops[i] = 0;
+                    }
+                    rainDrops[i]++;
+                }
+            }
+            setInterval(drawMatrix, 40);
+
+            // --- App Logic ---
+            const statusText = document.getElementById('status-text');
+            const captchaImage = document.getElementById('captcha-image');
+            const resultBoxes = Array.from({ length: 5 }, (_, i) => document.getElementById(`res-${i}`));
+            const liveAttemptsLog = document.getElementById('live-attempts-log');
+            const historyLog = document.getElementById('history-log');
+            
+            let imageQueue = [];
+            let currentPredictions = [];
+            let resultAnimationInterval;
+
+            // --- UI Functions ---
+            function typeStatus(htmlContent, callback) {
+                const textContent = htmlContent.replace(/<[^>]*>/g, '');
+                statusText.innerHTML = '';
+                let i = 0;
+                const typing = setInterval(() => {
+                    if (i < textContent.length) {
+                        statusText.textContent += textContent.charAt(i);
+                        i++;
+                    } else {
+                        clearInterval(typing);
+                        statusText.innerHTML = htmlContent;
+                        if (callback) callback();
+                    }
+                }, 20);
+            }
+            
+            function addHistoryEntry(data) {
+                const entry = document.createElement('div');
+                entry.className = 'history-entry';
+                
+                let resultHtml;
+                if(data.status === 'success') {
+                    resultHtml = `<span class="history-label">Kết quả:</span> <span class="history-success">${data.label.toUpperCase()}</span>`;
+                } else if (data.status === 'fail') {
+                    resultHtml = `<span class="history-label">Kết quả:</span> <span class="history-fail">THẤT BẠI</span>`;
+                } else {
+                    resultHtml = `<span class="history-info">${data.message}</span>`;
+                }
+
+                const imageName = data.imageName || data.new_filename;
+                const imagePath = data.isResult ? `/results/${imageName}` : `/images/${imageName}`;
+
+                entry.innerHTML = `
+                    <img src="${imagePath}" class="history-image" onerror="this.style.display='none'">
+                    <div class="history-details">
+                        <span class="history-label">Tên file:</span> ${imageName || 'N/A'}<br>
+                        ${resultHtml}
+                    </div>
+                `;
+                if(data.status === 'info') {
+                    entry.innerHTML = `<span class="history-info">${data.message}</span>`;
+                }
+
+                historyLog.insertBefore(entry, historyLog.firstChild);
+                if (historyLog.children.length > 100) {
+                    historyLog.removeChild(historyLog.lastChild);
+                }
+            }
+            
+            function addAttemptEntry(text) {
+                const entry = document.createElement('div');
+                entry.className = 'attempt-entry';
+                entry.textContent = text;
+                liveAttemptsLog.appendChild(entry);
+                liveAttemptsLog.scrollTop = liveAttemptsLog.scrollHeight;
+            }
+
+            function startResultBoxAnimation() {
+                const chars = '0123456789abcdefghijklmnopqrstuvwxyz?#$*&';
+                if (resultAnimationInterval) clearInterval(resultAnimationInterval);
+                resultAnimationInterval = setInterval(() => {
+                    resultBoxes.forEach(box => {
+                        if (!box.classList.contains('consensus')) {
+                           box.textContent = chars.charAt(Math.floor(Math.random() * chars.length)).toUpperCase();
+                        }
+                    });
+                }, 80);
+            }
+
+            function stopResultBoxAnimation() {
+                clearInterval(resultAnimationInterval);
+            }
+
+            async function revealConsensus(label) {
+                stopResultBoxAnimation();
+                for (let i = 0; i < resultBoxes.length; i++) {
+                    const box = resultBoxes[i];
+                    const char = label[i] || '?';
+                    box.textContent = char.toUpperCase();
+                    box.classList.add('consensus');
+                    await new Promise(resolve => setTimeout(resolve, 150));
+                }
+            }
+
+            // --- Socket.IO Logic ---
+            const socket = io.connect('http://' + document.domain + ':' + location.port);
+
+            socket.on('connect', () => {
+                typeStatus('KẾT NỐI MÁY CHỦ THÀNH CÔNG. YÊU CẦU DANH SÁCH TÁC VỤ...', () => socket.emit('get_images'));
+            });
+
+            socket.on('image_list', (data) => {
+                imageQueue = data.images;
+                if (imageQueue.length > 0) {
+                    typeStatus(`PHÁT HIỆN <span class="status-highlight">${imageQueue.length}</span> MỤC TIÊU. BẮT ĐẦU PHÂN TÍCH...`, () => processNextImage());
+                } else {
+                    typeStatus('KHÔNG CÓ MỤC TIÊU NÀO TRONG HÀNG ĐỢI. HỆ THỐNG Ở TRẠNG THÁI CHỜ.');
+                }
+            });
+
+            socket.on('prediction_result', (data) => {
+                const { attempt, prediction } = data;
+                const result = prediction || "?????";
+                currentPredictions.push(result);
+                typeStatus(`PHÂN TÍCH LẦN ${attempt}/5...`);
+                addAttemptEntry(`Lần ${attempt}: ${result.toUpperCase()}`);
+            });
+
+            socket.on('consensus_found', (data) => {
+                const { consensus_label, new_filename } = data;
+                typeStatus(`ĐỒNG THUẬN ĐẠT ĐƯỢC: <span class="status-highlight">${consensus_label.toUpperCase()}</span>. GÁN NHÃN VÀ LƯU TRỮ...`, async () => {
+                    await revealConsensus(consensus_label);
+                    addHistoryEntry({status: 'success', imageName: new_filename, label: consensus_label, isResult: true});
+                    setTimeout(processNextImage, 3000);
+                });
+            });
+
+            socket.on('consensus_failed', (data) => {
+                const { image_name } = data;
+                typeStatus(`PHÂN TÍCH THẤT BẠI. <span class="status-fail">KHÔNG ĐẠT ĐƯỢC ĐỒNG THUẬN</span>. BỎ QUA MỤC TIÊU.`, () => {
+                     stopResultBoxAnimation();
+                     resultBoxes.forEach(box => box.textContent = 'X');
+                     addHistoryEntry({status: 'fail', imageName: image_name, isResult: false});
+                    setTimeout(processNextImage, 3000);
+                });
+            });
+
+            socket.on('training_started', () => {
+                typeStatus(`ĐÃ XỬ LÝ HẾT HÀNG ĐỢI. BẮT ĐẦU <span class="status-highlight">TÁI HUẤN LUYỆN</span> MÔ HÌNH. VUI LÒNG CHỜ...`);
+                addHistoryEntry({status: 'info', message: '[INFO] Bắt đầu quá trình tái huấn luyện mô hình...'});
+            });
+
+            socket.on('training_finished', () => {
+                typeStatus(`TÁI HUẤN LUYỆN HOÀN TẤT. YÊU CẦU DANH SÁCH TÁC VỤ MỚI...`, () => {
+                    addHistoryEntry({status: 'info', message: '[INFO] Tái huấn luyện hoàn tất.'});
+                    socket.emit('get_images');
+                });
+            });
+            
+            socket.on('all_done', () => {
+                typeStatus('TẤT CẢ CÔNG VIỆC HOÀN TẤT. CỬA SỔ SẼ TỰ ĐỘNG ĐÓNG.', () => {
+                    setTimeout(() => window.close(), 2000);
+                });
+            });
+
+            socket.on('error', (data) => {
+                typeStatus(`LỖI HỆ THỐNG: <span class="status-fail">${data.message}</span>.`, () => {
+                    stopResultBoxAnimation();
+                    addHistoryEntry({status: 'fail', message: `[LỖI] ${data.message}`});
+                    setTimeout(processNextImage, 3000);
+                });
+            });
+
+            function processNextImage() {
+                resultBoxes.forEach(box => { box.textContent = ''; box.classList.remove('consensus'); });
+                liveAttemptsLog.innerHTML = '';
+                currentPredictions = [];
+                
+                if (imageQueue.length > 0) {
+                    const imageName = imageQueue.shift();
+                    typeStatus(`ĐANG PHÂN TÍCH MỤC TIÊU: <span class="status-highlight">${imageName}</span>`, () => {
+                        captchaImage.src = `/images/${imageName}`;
+                        startResultBoxAnimation();
+                        socket.emit('solve_image', { image_name: imageName });
+                    });
+                } else {
+                    typeStatus('TẤT CẢ MỤC TIÊU ĐÃ ĐƯỢC XỬ LÝ. KIỂM TRA LẠI HÀNG ĐỢI...');
+                    setTimeout(() => socket.emit('get_images'), 2000);
+                }
+            }
+        });
+    </script>
+</body>
+</html>
